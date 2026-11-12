@@ -120,6 +120,21 @@ def approvals(pr: dict) -> tuple[list[str], bool]:
             any(st == "CHANGES_REQUESTED" for st in latest.values()))
 
 
+ANSI = {"ready": "32", "needs": "34", "comments": "33", "open": "31"}  # green, blue, yellow, red
+
+
+def head(key: str, text: str) -> str:
+    """Section header, coloured (and bold) when writing to a terminal."""
+    if sys.stdout.isatty() and key in ANSI:
+        return f"\033[1;{ANSI[key]}m{text}\033[0m"
+    return text
+
+
+def gold(text: str) -> str:
+    """Highlight a note in gold (bold) when writing to a terminal."""
+    return f"\033[1;38;5;220m{text}\033[0m" if sys.stdout.isatty() and text else text
+
+
 def ts(s: str) -> datetime:
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
@@ -232,13 +247,13 @@ def print_text(d: dict) -> None:
         draft = " (draft)" if i["draft"] else ""
         label = " ".join(x for x in (i["repo"], i["jira"], i["title"]) if x)
         print(f"- {label}{draft} by {i['author']} "
-              f"(opened {i['createdAt'][:10]}){note}\n  {link(i['url'])}")
+              f"(opened {i['createdAt'][:10]}){gold(note)}\n  {link(i['url'])}")
 
     print(f"# PR follow-up for {d['user']} ({d['repo_count']} PDE repos)\n")
-    print(f"## READY TO MERGE ({len(d['ready'])})  -- your PRs with {APPROVALS_NEEDED}+ approvals\n")
+    print(head("ready", f"## READY TO MERGE ({len(d['ready'])})  -- your PRs with {APPROVALS_NEEDED}+ approvals") + "\n")
     for i in d["ready"]:
         line(i, f"  [approved by {', '.join(i['approvals'])}]")
-    print(f"\n## My PRs needing approvals ({len(d['needs'])})\n")
+    print("\n" + head("needs", f"## My PRs needing approvals ({len(d['needs'])})") + "\n")
     for i in d["needs"]:
         note = f"{len(i['approvals'])}/{APPROVALS_NEEDED} approvals"
         if i["approvals"]:
@@ -247,7 +262,7 @@ def print_text(d: dict) -> None:
             note += "; changes requested"
         line(i, f"  [{note}]")
     print()
-    print(f"## Comments ({len(d['comments'])})  -- you commented, not approved: recheck\n")
+    print(head("comments", f"## Comments ({len(d['comments'])})  -- you commented, not approved: recheck") + "\n")
     for i in d["comments"]:
         flags = []
         if i["state"] == "CHANGES_REQUESTED":
@@ -259,7 +274,7 @@ def print_text(d: dict) -> None:
                        ("mobile", "Mobile PRs  -- mobile team repos"),
                        ("not_ready", "Not ready to merge  -- title says DO NOT MERGE")):
         name, _, rest = title.partition("  ")
-        print(f"\n## {name} ({len(d[key])})  {rest}\n")
+        print("\n" + head(key, f"## {name} ({len(d[key])})  {rest}") + "\n")
         for i in d[key]:
             line(i)
 
@@ -268,19 +283,24 @@ PAGE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PR follow-up</title>
 <style>
-  :root { --bg:#fff; --fg:#1f2328; --muted:#656d76; --line:#d0d7de; --link:#0969da; --chip:#fff8c5; --chipfg:#7d4e00; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#0d1117; --fg:#e6edf3; --muted:#8b949e; --line:#30363d; --link:#58a6ff; --chip:#3b2f00; --chipfg:#e3b341; } }
-  body { background:var(--bg); color:var(--fg); font:14px/1.45 -apple-system,system-ui,sans-serif; margin:0; padding:16px; max-width:1000px; }
+  :root { --bg:#fff; --fg:#1f2328; --muted:#656d76; --line:#d0d7de; --link:#0969da; --chip:#eaeef2; --chipfg:#32383f;
+    --green:#1a7f37; --green-bg:#dafbe1; --blue:#0969da; --blue-bg:#ddf4ff; --yellow:#7d4e00; --yellow-bg:#fff4c2; --yellow-bar:#d4a72c; --red:#cf222e; --red-bg:#ffebe9; --gray:#57606a; --gray-bg:#f6f8fa; --gold:#ffc83d; --goldfg:#3b2a00; --goldline:#d9a000; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0d1117; --fg:#e6edf3; --muted:#8b949e; --line:#30363d; --link:#58a6ff; --chip:#21262d; --chipfg:#c9d1d9;
+    --green:#3fb950; --green-bg:#12261e; --blue:#58a6ff; --blue-bg:#0f2540; --yellow:#e3b341; --yellow-bg:#2f2706; --yellow-bar:#e3b341; --red:#ff7b72; --red-bg:#3a1418; --gray:#8b949e; --gray-bg:#161b22; --gold:#f2b705; --goldfg:#1a1300; --goldline:#ffd54f; } }
+  body { background:var(--bg); color:var(--fg); font:15px/1.5 "Inter",ui-sans-serif,-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; -webkit-font-smoothing:antialiased; margin:0; padding:24px 16px; max-width:1000px; }
   header { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
-  h1 { font-size:20px; margin:0; } #status { color:var(--muted); }
-  button { background:transparent; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; }
-  h2 { font-size:16px; margin:24px 0 6px; padding-bottom:4px; border-bottom:1px solid var(--line); }
-  h2 small { color:var(--muted); font-weight:400; }
-  ul { list-style:none; margin:0; padding:0; } li { padding:6px 0; border-bottom:1px solid var(--line); }
+  h1 { font-size:22px; font-weight:700; letter-spacing:-0.01em; margin:0; } #status { color:var(--muted); font-size:13px; }
+  button { background:transparent; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:4px 12px; font:inherit; font-size:13px; cursor:pointer; }
+  h2 { font-size:15px; font-weight:650; letter-spacing:0.01em; margin:28px 0 6px; padding:8px 12px; border-radius:6px; border-left:5px solid var(--c); background:var(--bg-c); color:var(--c); }
+  h2 small { color:var(--muted); font-weight:400; margin-left:6px; }
+  h2.ready { --c:var(--green); --bg-c:var(--green-bg); } h2.needs { --c:var(--blue); --bg-c:var(--blue-bg); }
+  h2.comments { --c:var(--yellow); --bg-c:var(--yellow-bg); border-left-color:var(--yellow-bar); }
+  h2.open { --c:var(--red); --bg-c:var(--red-bg); } h2.mobile, h2.not_ready { --c:var(--gray); --bg-c:var(--gray-bg); }
+  ul { list-style:none; margin:0; padding:0; } li { padding:8px 4px; border-bottom:1px solid var(--line); }
   a { color:var(--link); text-decoration:none; } a:hover { text-decoration:underline; }
-  .repo { font-weight:600; } .meta { color:var(--muted); }
-  .chip { background:var(--chip); color:var(--chipfg); border-radius:10px; padding:1px 8px; font-size:12px; margin-left:6px; }
-  .empty { color:var(--muted); padding:6px 0; }
+  .repo { font-weight:600; } .meta { color:var(--muted); font-size:13px; }
+  .chip { background:var(--gold); color:var(--goldfg); border-radius:10px; padding:2px 9px; font-size:12px; font-weight:650; margin-left:6px; white-space:nowrap; box-shadow:0 0 0 1px var(--goldline); }
+  .empty { color:var(--muted); padding:6px 4px; }
 </style></head><body>
 <header><h1>PR follow-up</h1><span id="status">Loading… (about 30 seconds)</span><button id="refresh">Refresh</button></header>
 <main id="main"></main>
@@ -298,7 +318,7 @@ const $ = (t, props={}, ...kids) => { const e = Object.assign(document.createEle
 function render(d) {
   const main = document.getElementById("main"); main.replaceChildren();
   for (const [key, name, hint] of SECTIONS) {
-    main.append($("h2", {}, `${name} (${d[key].length}) `, $("small", {textContent: "— " + hint})));
+    main.append($("h2", {className:key}, `${name} (${d[key].length}) `, $("small", {textContent: "— " + hint})));
     if (!d[key].length) { main.append($("div", {className:"empty", textContent:"Nothing here."})); continue; }
     const ul = $("ul");
     for (const i of d[key]) {
