@@ -139,13 +139,15 @@ def ts(s: str) -> datetime:
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
-def count_commits_since(pr: dict, since: datetime) -> int:
-    """Commits are fetched per-PR (only for PRs you touched): too heavy for the bulk query."""
+def commit_info(pr: dict, since: datetime) -> tuple[int, datetime | None]:
+    """(commits after `since`, date of the PR's latest commit).
+    Fetched per-PR (only for PRs you touched): too heavy for the bulk query."""
     out = run(["gh", "pr", "view", str(pr["number"]), "--repo", f"{ORG}/{pr['repo']}",
                "--json", "commits"])
     if not out:
-        return 0
-    return sum(1 for c in json.loads(out)["commits"] if ts(c["committedDate"]) > since)
+        return 0, None
+    dates = [ts(c["committedDate"]) for c in json.loads(out)["commits"]]
+    return sum(1 for d in dates if d > since), max(dates, default=None)
 
 
 def classify(pr: dict, user: str) -> tuple[str, dict]:
@@ -169,14 +171,14 @@ def classify(pr: dict, user: str) -> tuple[str, dict]:
         return "open", {}
 
     last = max(times)
-    new_commits = count_commits_since(pr, last)
+    new_commits, last_commit = commit_info(pr, last)
     others = sum(
         1 for x in pr["reviews"] + pr["comments"]
         if (x.get("author") or {}).get("login", "").lower() not in (u, "")
         and not is_bot_login((x.get("author") or {}).get("login", ""))
         and ts(x.get("submittedAt") or x["createdAt"]) > last)
     state = verdicts[-1]["state"] if verdicts else "COMMENTED"
-    return "comments", {"last": last, "new_commits": new_commits,
+    return "comments", {"last": last, "last_commit": last_commit, "new_commits": new_commits,
                         "new_replies": others, "state": state}
 
 
@@ -222,8 +224,9 @@ def collect(user: str, include_drafts: bool) -> dict:
         if not key:
             continue
         kind, info = classify(pr, user)
-        if "last" in info:
-            info["last"] = info["last"].isoformat()
+        for k in ("last", "last_commit"):
+            if info.get(k):
+                info[k] = info[k].isoformat()
         item = {"repo": pr["repo"], "number": pr["number"], "title": pr["title"],
                 "url": pr["url"], "author": (pr["author"] or {}).get("login", "?"),
                 "jira": key, "draft": pr["isDraft"], "createdAt": pr["createdAt"], "updatedAt": pr["updatedAt"], **info}
@@ -243,11 +246,11 @@ def collect(user: str, include_drafts: bool) -> dict:
 
 
 def print_text(d: dict) -> None:
-    def line(i: dict, note: str = "") -> None:
+    def line(i: dict, note: str = "", extra: str = "") -> None:
         draft = " (draft)" if i["draft"] else ""
         label = " ".join(x for x in (i["repo"], i["jira"], i["title"]) if x)
         print(f"- {label}{draft} by {i['author']} "
-              f"(opened {i['createdAt'][:10]}){gold(note)}\n  {link(i['url'])}")
+              f"(opened {i['createdAt'][:10]}{extra}){gold(note)}\n  {link(i['url'])}")
 
     print(f"# PR follow-up for {d['user']} ({d['repo_count']} PDE repos)\n")
     print(head("ready", f"## READY TO MERGE ({len(d['ready'])})  -- your PRs with {APPROVALS_NEEDED}+ approvals") + "\n")
@@ -269,7 +272,9 @@ def print_text(d: dict) -> None:
             flags.append("you requested changes")
         if i["new_commits"]:
             flags.append(f"{i['new_commits']} new commit(s) since you")
-        line(i, f"  [{'; '.join(flags)}]" if flags else "")
+        dates = f", you last commented {i['last'][:10]}"
+        dates += f", last commit {i['last_commit'][:10]}" if i.get("last_commit") else ""
+        line(i, f"  [{'; '.join(flags)}]" if flags else "", dates)
     for key, title in (("open", "Open PRs  -- not looked at yet"),
                        ("mobile", "Mobile PRs  -- mobile team repos"),
                        ("not_ready", "Not ready to merge  -- title says DO NOT MERGE")):
@@ -325,7 +330,8 @@ function render(d) {
       const li = $("li");
       li.append($("a", {href:i.url, target:"_blank", rel:"noopener", textContent:i.repo, className:"repo"}), " ",
         $("a", {href:i.url, target:"_blank", rel:"noopener", textContent:`${i.jira ? i.jira + " " : ""}${i.title}`}),
-        $("span", {className:"meta", textContent:` by ${i.author} · opened ${i.createdAt.slice(0,10)}${i.draft ? " · draft" : ""}`}));
+        $("span", {className:"meta", textContent:` by ${i.author} · opened ${i.createdAt.slice(0,10)}${i.draft ? " · draft" : ""}`
+          + (i.last ? ` · you last commented ${i.last.slice(0,10)}` : "") + (i.last_commit ? ` · last commit ${i.last_commit.slice(0,10)}` : "")}));
       if (i.approvals) li.append($("span", {className:"chip", textContent: i.approvals.length >= NEEDED && !i.changes_requested
         ? "approved by " + i.approvals.join(", ") : `${i.approvals.length}/${NEEDED} approvals` + (i.approvals.length ? ": " + i.approvals.join(", ") : "")}));
       if (i.changes_requested) li.append($("span", {className:"chip", textContent:"changes requested"}));

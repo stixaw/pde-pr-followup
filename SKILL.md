@@ -15,7 +15,9 @@ Runs `pde-pr-followup.py`, which prints six sections for the logged-in `gh` user
    titled DO NOT MERGE goes to Not ready to merge.
 3. **Comments**: PRs the user commented on or reviewed but has not approved. Each line
    flags `[N new commit(s) since you]` when there are new commits since the user's last activity,
-   and nothing otherwise. Lines show the repo name (no PR number) and the URL. Oldest PR (by creation date) first.
+   and nothing otherwise. Lines show the repo name (no PR number), the date the user last
+   commented (latest of the user's reviews and PR comments), the date of the PR's latest commit,
+   and the URL. Oldest PR (by creation date) first.
 4. **Open PRs**: PRs the user has not touched. Oldest PR (by creation date) first.
 5. **Mobile PRs**: PRs from the mobile team's repos (`MOBILE_REPOS` in the script, currently
    `pde-mobile-app`), from either list. Oldest first.
