@@ -40,7 +40,7 @@ python3 pde-pr-followup.py                 # for the logged-in gh user
 python3 pde-pr-followup.py --user <login>  # for someone else
 python3 pde-pr-followup.py --include-drafts
 python3 pde-pr-followup.py --json          # machine-readable
-python3 pde-pr-followup.py --serve         # live HTML page at http://127.0.0.1:8765 (--port N)
+python3 pde-pr-followup.py --serve         # live page at http://127.0.0.1:8765 in your default browser (--port N, --no-open)
 ```
 
 Takes about 30 seconds (it checks CODEOWNERS on ~40 repos). Present the output as-is,
@@ -56,5 +56,4 @@ tell the user the results are incomplete for that repo; don't treat it as "no PR
 ## Live page
 
 `--serve` starts a localhost-only server (127.0.0.1) and prints the URL. The page loads the
-queue (about 30 seconds), has a Refresh button, and refreshes every 5 minutes. To view it in
-VS Code: Cmd+Shift+P, "Simple Browser: Show", paste the URL. Ctrl+C stops it.
+queue (about 30 seconds), has a Refresh button, and refreshes every 5 minutes. It opens in your default browser automatically (`--no-open` to skip). Ctrl+C stops it.

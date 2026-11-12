@@ -11,5 +11,5 @@ Requires `gh` (authenticated for the `chghealthcare` org) and `python3` 3.10+.
 
 See `SKILL.md` for the rules (what is skipped, how PRs are classified).
 
-`--serve` opens a live HTML page on `http://127.0.0.1:8765` (localhost only); view it in VS Code with
-"Simple Browser: Show".
+`--serve` opens a live HTML page on `http://127.0.0.1:8765` (localhost only) in your default browser
+(`--no-open` to skip).

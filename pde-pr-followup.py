@@ -257,8 +257,8 @@ function render(d) {
     const ul = $("ul");
     for (const i of d[key]) {
       const li = $("li");
-      li.append($("a", {href:i.url, textContent:i.repo, className:"repo"}), " ",
-        $("a", {href:i.url, textContent:`${i.jira} ${i.title}`}),
+      li.append($("a", {href:i.url, target:"_blank", rel:"noopener", textContent:i.repo, className:"repo"}), " ",
+        $("a", {href:i.url, target:"_blank", rel:"noopener", textContent:`${i.jira} ${i.title}`}),
         $("span", {className:"meta", textContent:` by ${i.author} · opened ${i.createdAt.slice(0,10)}${i.draft ? " · draft" : ""}`}));
       if (i.state === "CHANGES_REQUESTED") li.append($("span", {className:"chip", textContent:"you requested changes"}));
       if (i.new_commits) li.append($("span", {className:"chip", textContent:`${i.new_commits} new commit(s) since you`}));
@@ -283,7 +283,7 @@ load(); setInterval(load, 5 * 60 * 1000);
 </script></body></html>"""
 
 
-def serve(user: str, include_drafts: bool, port: int) -> int:
+def serve(user: str, include_drafts: bool, port: int, open_browser: bool = True) -> int:
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     class Handler(BaseHTTPRequestHandler):
@@ -310,8 +310,12 @@ def serve(user: str, include_drafts: bool, port: int) -> int:
             pass
 
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)  # localhost only
-    print(f"Serving on http://127.0.0.1:{port}  (Ctrl+C to stop)", flush=True)
-    print("In VS Code: Cmd+Shift+P -> 'Simple Browser: Show' -> paste the URL above.", flush=True)
+    url = f"http://127.0.0.1:{port}"
+    print(f"Serving on {url}  (Ctrl+C to stop)", flush=True)
+    if open_browser:
+        import webbrowser
+        webbrowser.open(url)  # system default browser (macOS: `open`)
+        print("Opened in your default browser.", flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
@@ -325,12 +329,13 @@ def main() -> int:
     ap.add_argument("--include-drafts", action="store_true")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--serve", action="store_true", help="serve a live HTML page on localhost")
+    ap.add_argument("--no-open", action="store_true", help="with --serve: don't open the browser")
     ap.add_argument("--port", type=int, default=8765, help="port for --serve (default 8765)")
     args = ap.parse_args()
 
     user = args.user or current_user()
     if args.serve:
-        return serve(user, args.include_drafts, args.port)
+        return serve(user, args.include_drafts, args.port, not args.no_open)
     d = collect(user, args.include_drafts)
     if args.json:
         print(json.dumps(d, indent=2))
