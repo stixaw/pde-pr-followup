@@ -27,6 +27,7 @@ ORG = "chghealthcare"
 TEAM = "@chghealthcare/pde"
 NAME_REGEX = "^(pde-|chg-work|chg-ws|chg-travel)"
 CODEOWNERS_PATHS = (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")
+APPROVALS_NEEDED = 2  # approvals before one of your own PRs is "READY TO MERGE"
 MOBILE_REPOS = {"pde-mobile-app"}  # mobile team repos: listed separately
 JIRA_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9]+-\d+\b")
 PR_FIELDS = "number,title,url,author,headRefName,isDraft,createdAt,updatedAt,reviews,comments"
@@ -105,6 +106,20 @@ def link(url: str) -> str:
     return url
 
 
+def approvals(pr: dict) -> tuple[list[str], bool]:
+    """(current approvers, any outstanding changes-requested), from each reviewer's latest verdict."""
+    author = (pr["author"] or {}).get("login", "").lower()
+    latest: dict[str, str] = {}
+    for r in sorted(pr["reviews"], key=lambda r: r.get("submittedAt") or ""):
+        login = (r.get("author") or {}).get("login", "")
+        if not login or login.lower() == author or is_bot_login(login):
+            continue
+        if r["state"] in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):  # COMMENTED/PENDING don't change a verdict
+            latest[login] = r["state"]
+    return (sorted(l for l, st in latest.items() if st == "APPROVED"),
+            any(st == "CHANGES_REQUESTED" for st in latest.values()))
+
+
 def ts(s: str) -> datetime:
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
@@ -167,9 +182,24 @@ def collect(user: str, include_drafts: bool) -> dict:
     with ThreadPoolExecutor(8) as ex:
         all_prs = [p for prs in ex.map(repo_prs, repos) for p in prs]
 
-    comments, opened, mobile, not_ready = [], [], [], []
+    ready, needs, comments, opened, mobile, not_ready = [], [], [], [], [], []
     for pr in all_prs:
-        if is_dependabot(pr) or (pr["author"] or {}).get("login", "").lower() == user.lower():
+        if is_dependabot(pr):
+            continue
+        if (pr["author"] or {}).get("login", "").lower() == user.lower():
+            if pr["isDraft"] and not include_drafts:
+                continue
+            appr, changes = approvals(pr)
+            item = {"repo": pr["repo"], "number": pr["number"], "title": pr["title"], "url": pr["url"],
+                    "author": user, "jira": jira_key(pr) or "", "draft": pr["isDraft"],
+                    "createdAt": pr["createdAt"], "updatedAt": pr["updatedAt"],
+                    "approvals": appr, "changes_requested": changes}
+            if DNM_RE.search(pr["title"]):
+                not_ready.append(item)
+            elif len(appr) >= APPROVALS_NEEDED and not changes:
+                ready.append(item)
+            else:
+                needs.append(item)
             continue
         if pr["isDraft"] and not include_drafts:
             continue
@@ -191,19 +221,32 @@ def collect(user: str, include_drafts: bool) -> dict:
         elif kind == "open":
             opened.append(item)
 
-    for lst in (comments, opened, mobile, not_ready):
+    for lst in (ready, needs, comments, opened, mobile, not_ready):
         lst.sort(key=lambda i: i["createdAt"])  # oldest PR first
-    return {"user": user, "repo_count": len(repos), "comments": comments, "open": opened,
+    return {"user": user, "repo_count": len(repos), "ready": ready, "needs": needs, "comments": comments, "open": opened,
             "mobile": mobile, "not_ready": not_ready}
 
 
 def print_text(d: dict) -> None:
     def line(i: dict, note: str = "") -> None:
         draft = " (draft)" if i["draft"] else ""
-        print(f"- {i['repo']} {i['jira']} {i['title']}{draft} by {i['author']} "
+        label = " ".join(x for x in (i["repo"], i["jira"], i["title"]) if x)
+        print(f"- {label}{draft} by {i['author']} "
               f"(opened {i['createdAt'][:10]}){note}\n  {link(i['url'])}")
 
     print(f"# PR follow-up for {d['user']} ({d['repo_count']} PDE repos)\n")
+    print(f"## READY TO MERGE ({len(d['ready'])})  -- your PRs with {APPROVALS_NEEDED}+ approvals\n")
+    for i in d["ready"]:
+        line(i, f"  [approved by {', '.join(i['approvals'])}]")
+    print(f"\n## My PRs needing approvals ({len(d['needs'])})\n")
+    for i in d["needs"]:
+        note = f"{len(i['approvals'])}/{APPROVALS_NEEDED} approvals"
+        if i["approvals"]:
+            note += f": {', '.join(i['approvals'])}"
+        if i["changes_requested"]:
+            note += "; changes requested"
+        line(i, f"  [{note}]")
+    print()
     print(f"## Comments ({len(d['comments'])})  -- you commented, not approved: recheck\n")
     for i in d["comments"]:
         flags = []
@@ -242,7 +285,10 @@ PAGE = r"""<!doctype html>
 <header><h1>PR follow-up</h1><span id="status">Loading… (about 30 seconds)</span><button id="refresh">Refresh</button></header>
 <main id="main"></main>
 <script>
+const NEEDED = __NEEDED__;
 const SECTIONS = [
+  ["ready","READY TO MERGE","your PRs with " + NEEDED + "+ approvals"],
+  ["needs","My PRs needing approvals","fewer than " + NEEDED + " approvals"],
   ["comments","Comments","you commented, not approved: recheck"],
   ["open","Open PRs","not looked at yet"],
   ["mobile","Mobile PRs","mobile team repos"],
@@ -258,8 +304,11 @@ function render(d) {
     for (const i of d[key]) {
       const li = $("li");
       li.append($("a", {href:i.url, target:"_blank", rel:"noopener", textContent:i.repo, className:"repo"}), " ",
-        $("a", {href:i.url, target:"_blank", rel:"noopener", textContent:`${i.jira} ${i.title}`}),
+        $("a", {href:i.url, target:"_blank", rel:"noopener", textContent:`${i.jira ? i.jira + " " : ""}${i.title}`}),
         $("span", {className:"meta", textContent:` by ${i.author} · opened ${i.createdAt.slice(0,10)}${i.draft ? " · draft" : ""}`}));
+      if (i.approvals) li.append($("span", {className:"chip", textContent: i.approvals.length >= NEEDED && !i.changes_requested
+        ? "approved by " + i.approvals.join(", ") : `${i.approvals.length}/${NEEDED} approvals` + (i.approvals.length ? ": " + i.approvals.join(", ") : "")}));
+      if (i.changes_requested) li.append($("span", {className:"chip", textContent:"changes requested"}));
       if (i.state === "CHANGES_REQUESTED") li.append($("span", {className:"chip", textContent:"you requested changes"}));
       if (i.new_commits) li.append($("span", {className:"chip", textContent:`${i.new_commits} new commit(s) since you`}));
       ul.append(li);
@@ -297,7 +346,7 @@ def serve(user: str, include_drafts: bool, port: int, open_browser: bool = True)
         def do_GET(self) -> None:
             path = self.path.split("?")[0]
             if path == "/":
-                self._send(200, "text/html; charset=utf-8", PAGE.encode())
+                self._send(200, "text/html; charset=utf-8", PAGE.replace("__NEEDED__", str(APPROVALS_NEEDED)).encode())
             elif path == "/data":
                 try:
                     self._send(200, "application/json", json.dumps(collect(user, include_drafts)).encode())

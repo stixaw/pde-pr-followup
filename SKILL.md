@@ -5,22 +5,28 @@ description: Show which open PRs in @chghealthcare/pde-owned repos the user stil
 
 # PDE PR follow-up
 
-Runs `pde-pr-followup.py`, which prints four sections for the logged-in `gh` user:
+Runs `pde-pr-followup.py`, which prints six sections for the logged-in `gh` user:
 
-1. **Comments** (top): PRs the user commented on or reviewed but has not approved. Each line
+1. **READY TO MERGE** (very top): the user's own open PRs with `APPROVALS_NEEDED` (2) or more
+   current approvals and no outstanding changes-requested.
+2. **My PRs needing approvals**: the user's own PRs with fewer approvals (shows `N/2 approvals`
+   and who approved). Approvals count each reviewer's latest verdict; comment-only reviews,
+   bots and the author are ignored. Own drafts are skipped unless `--include-drafts`; an own PR
+   titled DO NOT MERGE goes to Not ready to merge.
+3. **Comments**: PRs the user commented on or reviewed but has not approved. Each line
    flags `[N new commit(s) since you]` when there are new commits since the user's last activity,
    and nothing otherwise. Lines show the repo name (no PR number) and the URL. Oldest PR (by creation date) first.
-2. **Open PRs**: PRs the user has not touched. Oldest PR (by creation date) first.
-3. **Mobile PRs**: PRs from the mobile team's repos (`MOBILE_REPOS` in the script, currently
+4. **Open PRs**: PRs the user has not touched. Oldest PR (by creation date) first.
+5. **Mobile PRs**: PRs from the mobile team's repos (`MOBILE_REPOS` in the script, currently
    `pde-mobile-app`), from either list. Oldest first.
-4. **Not ready to merge** (bottom): PRs from either list whose title contains "DO NOT MERGE"
+6. **Not ready to merge** (bottom): PRs from either list whose title contains "DO NOT MERGE"
    (case-insensitive). They are removed from Comments, Open PRs and Mobile PRs (this wins over Mobile). Oldest first.
 
 PRs the user already approved are skipped. A later "changes requested" or dismissed approval
 puts the PR back in Comments.
 
 Always excluded: Dependabot PRs, PRs without a Jira key (e.g. `PDE-123`) in the title or
-branch name, drafts (unless `--include-drafts`), and the user's own PRs. Bot comments
+branch name, drafts (unless `--include-drafts`), and (from the review lists) the user's own PRs. Bot comments
 (github-actions, Copilot) don't count as activity.
 
 ## Prerequisites
@@ -44,13 +50,13 @@ python3 pde-pr-followup.py --serve         # live page at http://127.0.0.1:8765 
 ```
 
 Takes about 30 seconds (it checks CODEOWNERS on ~40 repos). Present the output as-is,
-keeping the Comments section on top and Not ready to merge at the bottom. URLs are printed as
+keeping READY TO MERGE on top and Not ready to merge at the bottom. URLs are printed as
 clickable terminal links (OSC 8) when stdout is a terminal, plain otherwise. If stderr shows `WARNING: could not list PRs for <repo>`,
 tell the user the results are incomplete for that repo; don't treat it as "no PRs".
 
 ## Adapting for another team/org
 
-`ORG`, `TEAM`, `NAME_REGEX`, and `MOBILE_REPOS` are constants at the top of the script. Everything else
+`ORG`, `TEAM`, `NAME_REGEX`, and `MOBILE_REPOS`, and `APPROVALS_NEEDED` are constants at the top of the script. Everything else
 (user, Jira key detection) is derived at runtime, so other people can run it unchanged.
 
 ## Live page
